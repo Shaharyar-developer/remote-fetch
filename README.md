@@ -1,6 +1,9 @@
-# Remote Fetch Plugin for Obsidian
+
+# Remote Fetch Plugin
 
 A powerful Obsidian plugin that allows you to download files from URLs directly into your vault with CORS proxy support.
+
+> **Note:** This plugin is **not yet available in the Obsidian Community Plugins directory**. For now, you must install it manually (see instructions below).
 
 ## Features
 
@@ -14,13 +17,7 @@ A powerful Obsidian plugin that allows you to download files from URLs directly 
 
 ## Installation
 
-### From Community Plugins (Recommended)
-1. Open Obsidian Settings
-2. Go to Community Plugins
-3. Search for "Remote Fetch"
-4. Install and enable the plugin
-
-### Manual Installation
+### Manual Installation (Community Plugins not available yet)
 1. Download the latest release from GitHub
 2. Extract the files to your vault's `.obsidian/plugins/remote-fetch/` folder
 3. Enable the plugin in Obsidian's Community Plugins settings
@@ -62,7 +59,8 @@ You can set up your own CORS proxy using Cloudflare Workers or similar services.
 
 #### Example: Safe Cloudflare Worker Script
 
-This repository now includes a full example worker script in [`cors-proxy-worker.js`](./cors-proxy-worker.js) **This code is designed to be as safe as possible:**
+The full source code for a safe CORS proxy is included in [`cors-proxy-worker.js`](./cors-proxy-worker.js) in this repository.
+**This code is designed to be as safe as possible:**
 
 - Only allows public internet URLs (blocks localhost, private IPs, etc.)
 - Handles CORS preflight requests
