@@ -138,7 +138,6 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 If you find this plugin useful, consider supporting its development:
 - ⭐ Star the repository on GitHub
 - 🐛 Report bugs or suggest features
-- 💝 Sponsor the project
 
 ## Changelog
 
