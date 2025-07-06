@@ -53,34 +53,35 @@ Many websites block direct file downloads due to CORS (Cross-Origin Resource Sha
 ### Default Proxy
 The plugin comes with a default CORS proxy: `https://remote-fetch.shaharyar.dev/?url=`
 
+
 ### Custom Proxy
 You can set up your own CORS proxy using Cloudflare Workers or similar services. The proxy should:
 1. Accept a URL parameter
 2. Fetch the content from that URL
 3. Return it with appropriate CORS headers
 
-Example Cloudflare Worker:
+#### Example: Safe Cloudflare Worker Script
+
+This repository now includes a full example worker script in [`cors-proxy-worker.js`](./cors-proxy-worker.js) **This code is designed to be as safe as possible:**
+
+- Only allows public internet URLs (blocks localhost, private IPs, etc.)
+- Handles CORS preflight requests
+- Limits file size (50MB max)
+- Copies only safe headers
+- Sets strict CORS headers on all responses
+- Does NOT log, store, or analyze any data
+
+You can review the code directly in this repository. It is safe for use as a public CORS proxy for file downloads.
+
 ```javascript
+// See cors-proxy-worker.js for the full, up-to-date code
 export default {
-  async fetch(request, env, ctx) {
-    const url = new URL(request.url);
-    const targetUrl = url.searchParams.get('url');
-    
-    if (!targetUrl) {
-      return new Response('Missing URL parameter', { status: 400 });
-    }
-    
-    const response = await fetch(targetUrl);
-    const newResponse = new Response(response.body, response);
-    
-    newResponse.headers.set('Access-Control-Allow-Origin', '*');
-    newResponse.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-    newResponse.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-    
-    return newResponse;
-  },
+  async fetch(request) {
+    // ...existing code as in cors-proxy-worker.js...
+  }
 };
 ```
+
 
 ## Supported File Types
 
@@ -140,6 +141,10 @@ If you find this plugin useful, consider supporting its development:
 - 🐛 Report bugs or suggest features
 
 ## Changelog
+
+### 1.0.1
+- Added `cors-proxy-worker.js` to the repository for full transparency
+- README updated to clarify proxy safety and provide direct code reference
 
 ### 1.0.0
 - Initial release
