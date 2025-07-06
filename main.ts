@@ -23,6 +23,25 @@ const DEFAULT_SETTINGS: RemoteFetchSettings = {
 	corsProxyUrl: "https://remote-fetch.shaharyar.dev/?url=",
 };
 
+// Safety constants
+const MAX_FILE_SIZE = 20 * 1024 * 1024; 
+const ALLOWED_PROTOCOLS = ['https:', 'http:'];
+const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.cmd', '.scr', '.com', '.pif', '.vbs', '.js', '.jar', '.app', '.deb', '.dmg', '.pkg', '.msi'];
+const ALLOWED_CONTENT_TYPES = [
+	'application/pdf',
+	'image/',
+	'text/',
+	'application/json',
+	'application/zip',
+	'application/x-zip-compressed',
+	'application/msword',
+	'application/vnd.openxmlformats-officedocument',
+	'application/vnd.ms-excel',
+	'video/',
+	'audio/',
+	'application/octet-stream'
+];
+
 export default class RemoteFetchPlugin extends Plugin {
 	settings: RemoteFetchSettings;
 
@@ -58,6 +77,17 @@ export default class RemoteFetchPlugin extends Plugin {
 
 	async downloadFile(url: string, targetPath: string): Promise<void> {
 		try {
+			// Validate URL protocol
+			if (!this.validateUrl(url)) {
+				throw new Error("Only HTTP and HTTPS URLs are supported");
+			}
+
+			// Validate filename for security
+			const filename = targetPath.split("/").pop() || "";
+			if (!this.validateFilename(filename)) {
+				throw new Error("File type not allowed for security reasons");
+			}
+
 			new Notice("Starting download...");
 
 			let fetchUrl = url;
@@ -88,6 +118,25 @@ export default class RemoteFetchPlugin extends Plugin {
 				throw new Error(`HTTP error! status: ${response.status}`);
 			}
 
+			// Validate file size
+			await this.validateFileSize(response);
+
+			// Validate content type
+			const contentType = response.headers.get("content-type");
+			if (!this.validateContentType(contentType)) {
+				throw new Error(
+					"Content type not allowed for security reasons"
+				);
+			}
+
+			// Validate content type
+			const responseContentType = response.headers.get("content-type");
+			if (!this.validateContentType(responseContentType)) {
+				throw new Error(
+					"Content type not allowed for security reasons"
+				);
+			}
+
 			// Handle 304 Not Modified - try to get fresh content
 			if (response.status === 304) {
 				new Notice(
@@ -114,6 +163,16 @@ export default class RemoteFetchPlugin extends Plugin {
 					);
 				}
 
+				// Validate fresh response size and content type
+				await this.validateFileSize(freshResponse);
+				const freshContentType =
+					freshResponse.headers.get("content-type");
+				if (!this.validateContentType(freshContentType)) {
+					throw new Error(
+						"Content type not allowed for security reasons"
+					);
+				}
+
 				// Use the fresh response
 				const freshArrayBuffer = await freshResponse.arrayBuffer();
 				const freshUint8Array = new Uint8Array(freshArrayBuffer);
@@ -122,8 +181,15 @@ export default class RemoteFetchPlugin extends Plugin {
 					throw new Error("Downloaded file is empty after retry");
 				}
 
-				const freshContentType =
-					freshResponse.headers.get("content-type");
+				// Validate actual file size after download
+				if (freshUint8Array.length > MAX_FILE_SIZE) {
+					throw new Error(
+						`File too large: ${Math.round(
+							freshUint8Array.length / (1024 * 1024)
+						)}MB (max: ${MAX_FILE_SIZE / (1024 * 1024)}MB)`
+					);
+				}
+
 				const freshFinalPath = this.ensureFileExtension(
 					targetPath,
 					freshContentType
@@ -149,8 +215,10 @@ export default class RemoteFetchPlugin extends Plugin {
 			}
 
 			// Check if we got HTML instead of a file (common with share links)
-			const contentType = response.headers.get("content-type");
-			if (contentType && contentType.includes("text/html")) {
+			if (
+				responseContentType &&
+				responseContentType.includes("text/html")
+			) {
 				throw new Error(
 					"Server returned HTML instead of a file. This URL may not be a direct download link."
 				);
@@ -164,8 +232,20 @@ export default class RemoteFetchPlugin extends Plugin {
 				throw new Error("Downloaded file is empty");
 			}
 
+			// Validate actual file size after download
+			if (uint8Array.length > MAX_FILE_SIZE) {
+				throw new Error(
+					`File too large: ${Math.round(
+						uint8Array.length / (1024 * 1024)
+					)}MB (max: ${MAX_FILE_SIZE / (1024 * 1024)}MB)`
+				);
+			}
+
 			// If the target path doesn't have an extension and we have a content type, add one
-			const finalPath = this.ensureFileExtension(targetPath, contentType);
+			const finalPath = this.ensureFileExtension(
+				targetPath,
+				responseContentType
+			);
 
 			// Ensure the folder exists before creating the file
 			const folderPath = finalPath.substring(
@@ -186,7 +266,13 @@ export default class RemoteFetchPlugin extends Plugin {
 			console.error("Download failed:", error);
 
 			// Provide more specific error messages
-			if (
+			if (error.message.includes("not allowed for security reasons")) {
+				new Notice(`Download failed: ${error.message}`);
+			} else if (error.message.includes("too large")) {
+				new Notice(`Download failed: ${error.message}`);
+			} else if (error.message.includes("Only HTTP and HTTPS")) {
+				new Notice(`Download failed: ${error.message}`);
+			} else if (
 				error.message.includes("CORS") ||
 				error.message.includes("fetch")
 			) {
@@ -292,6 +378,58 @@ export default class RemoteFetchPlugin extends Plugin {
 	sanitizeFilename(filename: string): string {
 		return filename.replace(/[\\/:*?"<>|]/g, "_");
 	}
+
+	/**
+	 * Validates if a URL is safe to download from.
+	 * @param url The URL to validate.
+	 * @returns True if the URL is safe, false otherwise.
+	 */
+	private validateUrl(url: string): boolean {
+		try {
+			const urlObj = new URL(url);
+			return ALLOWED_PROTOCOLS.includes(urlObj.protocol);
+		} catch {
+			return false;
+		}
+	}
+
+	/**
+	 * Validates if a filename is safe (doesn't have blocked extensions).
+	 * @param filename The filename to validate.
+	 * @returns True if the filename is safe, false otherwise.
+	 */
+	private validateFilename(filename: string): boolean {
+		const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
+		return !BLOCKED_EXTENSIONS.includes(ext);
+	}
+
+	/**
+	 * Validates if the content type is allowed.
+	 * @param contentType The content type to validate.
+	 * @returns True if the content type is allowed, false otherwise.
+	 */
+	private validateContentType(contentType: string | null): boolean {
+		if (!contentType) return true; // Allow if no content type specified
+		
+		const lowerContentType = contentType.toLowerCase();
+		return ALLOWED_CONTENT_TYPES.some(allowed => lowerContentType.includes(allowed));
+	}
+
+	/**
+	 * Checks if the file size is within limits.
+	 * @param response The fetch response to check.
+	 * @returns Promise that resolves if size is OK, rejects if too large.
+	 */
+	private async validateFileSize(response: Response): Promise<void> {
+		const contentLength = response.headers.get('content-length');
+		if (contentLength) {
+			const size = parseInt(contentLength);
+			if (size > MAX_FILE_SIZE) {
+				throw new Error(`File too large: ${Math.round(size / (1024 * 1024))}MB (max: ${MAX_FILE_SIZE / (1024 * 1024)}MB)`);
+			}
+		}
+	}
+
 }
 
 class RemoteFetchModal extends Modal {
@@ -451,9 +589,13 @@ class RemoteFetchModal extends Modal {
 			return;
 		}
 
-		// Validate URL
+		// Validate URL format and protocol
 		try {
-			new URL(url);
+			const urlObj = new URL(url);
+			if (!["https:", "http:"].includes(urlObj.protocol)) {
+				new Notice("Only HTTP and HTTPS URLs are supported");
+				return;
+			}
 		} catch (e) {
 			new Notice("Please enter a valid URL");
 			return;
@@ -461,6 +603,14 @@ class RemoteFetchModal extends Modal {
 
 		// Sanitize filename to prevent illegal characters
 		filename = this.plugin.sanitizeFilename(filename);
+
+		// Validate filename for security
+		const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
+
+		if (BLOCKED_EXTENSIONS.includes(ext)) {
+			new Notice("File type not allowed for security reasons");
+			return;
+		}
 
 		// Construct the target path
 		const folderPath = this.selectedFolder;
@@ -622,7 +772,7 @@ class RemoteFetchSettingTab extends PluginSettingTab {
 			.addText((text) =>
 				text
 					.setPlaceholder(
-						"https://remote-fetch.shaharyar321321.workers.dev/?url="
+						"https://remote-fetch.shaharyar.dev/?url="
 					)
 					.setValue(this.plugin.settings.corsProxyUrl)
 					.onChange(async (value) => {
