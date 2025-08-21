@@ -6,40 +6,51 @@ import {
 	PluginSettingTab,
 	Setting,
 	TFolder,
-	TFile,
 	ButtonComponent,
-	SuggestModal,
+	AbstractInputSuggest,
+	requestUrl,
 } from "obsidian";
 
 interface RemoteFetchSettings {
 	defaultDownloadFolder: string;
-	enableCorsProxy: boolean;
-	corsProxyUrl: string;
 }
 
 const DEFAULT_SETTINGS: RemoteFetchSettings = {
 	defaultDownloadFolder: "",
-	enableCorsProxy: true,
-	corsProxyUrl: "https://remote-fetch.shaharyar.dev/?url=",
 };
 
 // Safety constants
-const MAX_FILE_SIZE = 20 * 1024 * 1024; 
-const ALLOWED_PROTOCOLS = ['https:', 'http:'];
-const BLOCKED_EXTENSIONS = ['.exe', '.bat', '.cmd', '.scr', '.com', '.pif', '.vbs', '.js', '.jar', '.app', '.deb', '.dmg', '.pkg', '.msi'];
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const ALLOWED_PROTOCOLS = ["https:", "http:"];
+const BLOCKED_EXTENSIONS = [
+	".exe",
+	".bat",
+	".cmd",
+	".scr",
+	".com",
+	".pif",
+	".vbs",
+	".js",
+	".jar",
+	".app",
+	".deb",
+	".dmg",
+	".pkg",
+	".msi",
+];
 const ALLOWED_CONTENT_TYPES = [
-	'application/pdf',
-	'image/',
-	'text/',
-	'application/json',
-	'application/zip',
-	'application/x-zip-compressed',
-	'application/msword',
-	'application/vnd.openxmlformats-officedocument',
-	'application/vnd.ms-excel',
-	'video/',
-	'audio/',
-	'application/octet-stream'
+	"application/pdf",
+	"image/",
+	"text/",
+	"application/json",
+	"application/zip",
+	"application/x-zip-compressed",
+	"application/msword",
+	"application/vnd.openxmlformats-officedocument",
+	"application/vnd.ms-excel",
+	"video/",
+	"audio/",
+	"application/octet-stream",
 ];
 
 export default class RemoteFetchPlugin extends Plugin {
@@ -90,141 +101,51 @@ export default class RemoteFetchPlugin extends Plugin {
 
 			new Notice("Starting download...");
 
-			let fetchUrl = url;
-			let fetchOptions: RequestInit = {};
+			const response = await requestUrl({
+				url: url,
+				method: "GET",
+				headers: {
+					"User-Agent": "Obsidian Remote Fetch Plugin",
+					"Cache-Control": "no-cache",
+					Pragma: "no-cache",
+				},
+			});
 
-			// Use CORS proxy if enabled
-			if (this.settings.enableCorsProxy) {
-				fetchUrl = this.settings.corsProxyUrl + encodeURIComponent(url);
-				console.log("Using CORS proxy:", fetchUrl);
-
-				// Add CORS headers for the proxy request
-				fetchOptions = {
-					method: "GET",
-					headers: {
-						Accept: "*/*",
-						"User-Agent": "Obsidian Remote Fetch Plugin",
-						"Cache-Control": "no-cache",
-						Pragma: "no-cache",
-					},
-					mode: "cors",
-				};
-			}
-
-			const response = await fetch(fetchUrl, fetchOptions);
-
-			// Handle different HTTP status codes
-			if (!response.ok && response.status !== 304) {
+			// Validate HTTP status
+			if (response.status !== 200) {
 				throw new Error(`HTTP error! status: ${response.status}`);
 			}
 
 			// Validate file size
-			await this.validateFileSize(response);
+			const contentLength = response.headers["content-length"];
+			if (contentLength) {
+				const size = parseInt(contentLength);
+				if (size > MAX_FILE_SIZE) {
+					throw new Error(
+						`File too large: ${Math.round(
+							size / (1024 * 1024)
+						)}MB (max: ${MAX_FILE_SIZE / (1024 * 1024)}MB)`
+					);
+				}
+			}
 
 			// Validate content type
-			const contentType = response.headers.get("content-type");
+			const contentType = response.headers["content-type"] || null;
 			if (!this.validateContentType(contentType)) {
 				throw new Error(
 					"Content type not allowed for security reasons"
 				);
 			}
 
-			// Validate content type
-			const responseContentType = response.headers.get("content-type");
-			if (!this.validateContentType(responseContentType)) {
-				throw new Error(
-					"Content type not allowed for security reasons"
-				);
-			}
-
-			// Handle 304 Not Modified - try to get fresh content
-			if (response.status === 304) {
-				new Notice(
-					"Server returned cached response, retrying with fresh request..."
-				);
-
-				// Retry with cache-busting headers
-				const freshFetchOptions = {
-					...fetchOptions,
-					headers: {
-						...fetchOptions.headers,
-						"Cache-Control": "no-cache, no-store, must-revalidate",
-						Pragma: "no-cache",
-						Expires: "0",
-						"If-None-Match": "", // Clear any ETag
-						"If-Modified-Since": "", // Clear any Last-Modified
-					},
-				};
-
-				const freshResponse = await fetch(fetchUrl, freshFetchOptions);
-				if (!freshResponse.ok) {
-					throw new Error(
-						`HTTP error on retry! status: ${freshResponse.status}`
-					);
-				}
-
-				// Validate fresh response size and content type
-				await this.validateFileSize(freshResponse);
-				const freshContentType =
-					freshResponse.headers.get("content-type");
-				if (!this.validateContentType(freshContentType)) {
-					throw new Error(
-						"Content type not allowed for security reasons"
-					);
-				}
-
-				// Use the fresh response
-				const freshArrayBuffer = await freshResponse.arrayBuffer();
-				const freshUint8Array = new Uint8Array(freshArrayBuffer);
-
-				if (freshUint8Array.length === 0) {
-					throw new Error("Downloaded file is empty after retry");
-				}
-
-				// Validate actual file size after download
-				if (freshUint8Array.length > MAX_FILE_SIZE) {
-					throw new Error(
-						`File too large: ${Math.round(
-							freshUint8Array.length / (1024 * 1024)
-						)}MB (max: ${MAX_FILE_SIZE / (1024 * 1024)}MB)`
-					);
-				}
-
-				const freshFinalPath = this.ensureFileExtension(
-					targetPath,
-					freshContentType
-				);
-
-				// Ensure the folder exists
-				const freshFolderPath = freshFinalPath.substring(
-					0,
-					freshFinalPath.lastIndexOf("/")
-				);
-				if (freshFolderPath) {
-					await this.app.vault
-						.createFolder(freshFolderPath)
-						.catch(() => {});
-				}
-
-				await this.app.vault.createBinary(
-					freshFinalPath,
-					freshUint8Array
-				);
-				new Notice(`File downloaded successfully to ${freshFinalPath}`);
-				return;
-			}
-
 			// Check if we got HTML instead of a file (common with share links)
-			if (
-				responseContentType &&
-				responseContentType.includes("text/html")
-			) {
+			if (contentType && contentType.includes("text/html")) {
 				throw new Error(
 					"Server returned HTML instead of a file. This URL may not be a direct download link."
 				);
 			}
 
-			const arrayBuffer = await response.arrayBuffer();
+			// Get binary data
+			const arrayBuffer = response.arrayBuffer;
 			const uint8Array = new Uint8Array(arrayBuffer);
 
 			// Validate that we got actual file data (not empty or too small)
@@ -242,10 +163,7 @@ export default class RemoteFetchPlugin extends Plugin {
 			}
 
 			// If the target path doesn't have an extension and we have a content type, add one
-			const finalPath = this.ensureFileExtension(
-				targetPath,
-				responseContentType
-			);
+			const finalPath = this.ensureFileExtension(targetPath, contentType);
 
 			// Ensure the folder exists before creating the file
 			const folderPath = finalPath.substring(
@@ -258,37 +176,41 @@ export default class RemoteFetchPlugin extends Plugin {
 				});
 			}
 
-			// Create the file in the vault
-			await this.app.vault.createBinary(finalPath, uint8Array);
+			// Create the file in the vault (must pass ArrayBuffer, not Uint8Array)
+			await this.app.vault.createBinary(finalPath, arrayBuffer);
 
 			new Notice(`File downloaded successfully to ${finalPath}`);
 		} catch (error) {
 			console.error("Download failed:", error);
 
 			// Provide more specific error messages
-			if (error.message.includes("not allowed for security reasons")) {
+			if (
+				error.message &&
+				error.message.includes("not allowed for security reasons")
+			) {
 				new Notice(`Download failed: ${error.message}`);
-			} else if (error.message.includes("too large")) {
-				new Notice(`Download failed: ${error.message}`);
-			} else if (error.message.includes("Only HTTP and HTTPS")) {
+			} else if (error.message && error.message.includes("too large")) {
 				new Notice(`Download failed: ${error.message}`);
 			} else if (
-				error.message.includes("CORS") ||
-				error.message.includes("fetch")
+				error.message &&
+				error.message.includes("Only HTTP and HTTPS")
 			) {
+				new Notice(`Download failed: ${error.message}`);
+			} else if (error.message && error.message.includes("CORS")) {
+				new Notice("Download failed: CORS error.");
+			} else if (error.message && error.message.includes("Failed to fetch")) {
 				new Notice(
-					"Download failed: CORS error. Make sure your Workers proxy includes proper CORS headers."
+					"Download failed: Network error. Check your internet connection."
 				);
-			} else if (error.message.includes("Failed to fetch")) {
-				new Notice(
-					"Download failed: Network error. Check if your Workers proxy is accessible."
-				);
-			} else if (error.message.includes("NetworkError")) {
+			} else if (
+				error.message &&
+				error.message.includes("NetworkError")
+			) {
 				new Notice(
 					"Download failed: Network error. Check your internet connection."
 				);
 			} else {
-				new Notice(`Download failed: ${error.message}`);
+				new Notice(`Download failed: ${error.message || error}`);
 			}
 		}
 	}
@@ -399,7 +321,7 @@ export default class RemoteFetchPlugin extends Plugin {
 	 * @returns True if the filename is safe, false otherwise.
 	 */
 	private validateFilename(filename: string): boolean {
-		const ext = filename.toLowerCase().substring(filename.lastIndexOf('.'));
+		const ext = filename.toLowerCase().substring(filename.lastIndexOf("."));
 		return !BLOCKED_EXTENSIONS.includes(ext);
 	}
 
@@ -410,9 +332,11 @@ export default class RemoteFetchPlugin extends Plugin {
 	 */
 	private validateContentType(contentType: string | null): boolean {
 		if (!contentType) return true; // Allow if no content type specified
-		
+
 		const lowerContentType = contentType.toLowerCase();
-		return ALLOWED_CONTENT_TYPES.some(allowed => lowerContentType.includes(allowed));
+		return ALLOWED_CONTENT_TYPES.some((allowed) =>
+			lowerContentType.includes(allowed)
+		);
 	}
 
 	/**
@@ -421,23 +345,62 @@ export default class RemoteFetchPlugin extends Plugin {
 	 * @returns Promise that resolves if size is OK, rejects if too large.
 	 */
 	private async validateFileSize(response: Response): Promise<void> {
-		const contentLength = response.headers.get('content-length');
+		const contentLength = response.headers.get("content-length");
 		if (contentLength) {
 			const size = parseInt(contentLength);
 			if (size > MAX_FILE_SIZE) {
-				throw new Error(`File too large: ${Math.round(size / (1024 * 1024))}MB (max: ${MAX_FILE_SIZE / (1024 * 1024)}MB)`);
+				throw new Error(
+					`File too large: ${Math.round(
+						size / (1024 * 1024)
+					)}MB (max: ${MAX_FILE_SIZE / (1024 * 1024)}MB)`
+				);
 			}
 		}
 	}
+}
 
+class FolderInputSuggest extends AbstractInputSuggest<string> {
+	constructor(app: App, textInputEl: HTMLInputElement) {
+		super(app, textInputEl);
+	}
+
+	getSuggestions(query: string): string[] {
+		const folders = this.app.vault
+			.getAllLoadedFiles()
+			.filter((file) => file instanceof TFolder)
+			.map((folder) => folder.path)
+			.sort();
+
+		// Always include root folder option
+		const allFolders = ["", ...folders];
+
+		if (!query) {
+			return allFolders;
+		}
+
+		return allFolders.filter((folder) =>
+			folder.toLowerCase().includes(query.toLowerCase())
+		);
+	}
+
+	renderSuggestion(folder: string, el: HTMLElement) {
+		el.createDiv({
+			text: folder || "Root folder",
+		});
+	}
+
+	selectSuggestion(folder: string) {
+		this.setValue(folder);
+		this.close();
+	}
 }
 
 class RemoteFetchModal extends Modal {
 	plugin: RemoteFetchPlugin;
 	urlInput: HTMLInputElement;
 	filenameInput: HTMLInputElement;
-	selectedFolder: string;
-	folderDisplay: HTMLElement;
+	folderInput: HTMLInputElement;
+	folderSuggest: FolderInputSuggest;
 
 	constructor(app: App, plugin: RemoteFetchPlugin) {
 		super(app);
@@ -448,7 +411,7 @@ class RemoteFetchModal extends Modal {
 		const { contentEl } = this;
 		contentEl.empty();
 
-		contentEl.createEl("h2", { text: "Download File from URL" });
+		contentEl.createEl("h2", { text: "Download file from URL" });
 
 		// URL input
 		const urlContainer = contentEl.createEl("div", {
@@ -483,27 +446,23 @@ class RemoteFetchModal extends Modal {
 			}
 		});
 
-		// Folder selection
+		// Folder input with type-ahead
 		const folderContainer = contentEl.createEl("div", {
-			cls: "remote-fetch-folder-container",
+			cls: "remote-fetch-input-container",
 		});
 		folderContainer.createEl("label", { text: "Destination folder:" });
-
-		this.selectedFolder = this.plugin.settings.defaultDownloadFolder || "";
-		
-		this.folderDisplay = folderContainer.createEl("div", {
-			cls: "remote-fetch-folder-display",
-			text: this.selectedFolder || "Root folder",
+		this.folderInput = folderContainer.createEl("input", {
+			type: "text",
+			placeholder: "Type to search folders... (leave empty for root)",
+			cls: "remote-fetch-folder-input",
 		});
 
-		new ButtonComponent(folderContainer)
-			.setButtonText("Choose Folder")
-			.onClick(() => {
-				new FolderSuggestModal(this.app, (folder: string) => {
-					this.selectedFolder = folder;
-					this.folderDisplay.textContent = folder || "Root folder";
-				}).open();
-			});
+		// Set default folder
+		this.folderInput.value =
+			this.plugin.settings.defaultDownloadFolder || "";
+
+		// Initialize the folder suggest
+		this.folderSuggest = new FolderInputSuggest(this.app, this.folderInput);
 
 		// Download button
 		const buttonContainer = contentEl.createEl("div", {
@@ -535,7 +494,8 @@ class RemoteFetchModal extends Modal {
 					font-weight: bold;
 				}
 				.remote-fetch-url-input,
-				.remote-fetch-filename-input {
+				.remote-fetch-filename-input,
+				.remote-fetch-folder-input {
 					width: 100%;
 					padding: 8px;
 					border: 1px solid var(--background-modifier-border);
@@ -543,33 +503,11 @@ class RemoteFetchModal extends Modal {
 					background: var(--background-primary);
 					color: var(--text-normal);
 				}
-				.remote-fetch-folder-container {
-					margin-bottom: 15px;
-				}
-				.remote-fetch-folder-display {
-					padding: 8px;
-					border: 1px solid var(--background-modifier-border);
-					border-radius: 4px;
-					background: var(--background-secondary);
-					margin-bottom: 10px;
-				}
 				.remote-fetch-button-container {
 					display: flex;
 					justify-content: flex-end;
 					gap: 10px;
 					margin-top: 20px;
-				}
-				.folder-suggestion {
-					display: flex;
-					align-items: center;
-					padding: 4px 0;
-				}
-				.folder-icon {
-					margin-right: 8px;
-					font-size: 14px;
-				}
-				.folder-text {
-					color: var(--text-normal);
 				}
 			`,
 		});
@@ -578,6 +516,7 @@ class RemoteFetchModal extends Modal {
 	async handleDownload() {
 		const url = this.urlInput.value.trim();
 		let filename = this.filenameInput.value.trim();
+		const selectedFolder = this.folderInput.value.trim();
 
 		if (!url) {
 			new Notice("Please enter a URL");
@@ -613,8 +552,9 @@ class RemoteFetchModal extends Modal {
 		}
 
 		// Construct the target path
-		const folderPath = this.selectedFolder;
-		const targetPath = folderPath ? `${folderPath}/${filename}` : filename;
+		const targetPath = selectedFolder
+			? `${selectedFolder}/${filename}`
+			: filename;
 
 		// Check if file already exists
 		const existingFile = this.app.vault.getAbstractFileByPath(targetPath);
@@ -644,6 +584,7 @@ class RemoteFetchModal extends Modal {
 		// Just disable inputs and buttons, no loading modal
 		this.urlInput.disabled = true;
 		this.filenameInput.disabled = true;
+		this.folderInput.disabled = true;
 
 		// Find and disable buttons
 		const buttons = this.contentEl.querySelectorAll("button");
@@ -656,69 +597,13 @@ class RemoteFetchModal extends Modal {
 		// Re-enable all inputs and buttons
 		this.urlInput.disabled = false;
 		this.filenameInput.disabled = false;
+		this.folderInput.disabled = false;
 
 		// Find and re-enable buttons
 		const buttons = this.contentEl.querySelectorAll("button");
 		buttons.forEach((button) => {
 			button.disabled = false;
 		});
-	}
-
-}
-
-class FolderSuggestModal extends SuggestModal<string> {
-	onSelectFolder: (folder: string) => void;
-
-	constructor(app: App, onSelectFolder: (folder: string) => void) {
-		super(app);
-		this.onSelectFolder = onSelectFolder;
-		this.setPlaceholder("Type to search folders...");
-		this.setInstructions([
-			{
-				command: "↑↓",
-				purpose: "to navigate"
-			},
-			{
-				command: "↵",
-				purpose: "to select"
-			},
-			{
-				command: "esc",
-				purpose: "to dismiss"
-			}
-		]);
-	}
-
-	getSuggestions(query: string): string[] {
-		const folders = this.app.vault
-			.getAllLoadedFiles()
-			.filter((file) => file instanceof TFolder)
-			.map((folder) => folder.path)
-			.sort();
-
-		// Always include root folder option
-		const allFolders = ["", ...folders];
-		
-		if (!query) {
-			return allFolders;
-		}
-
-		return allFolders.filter((folder) =>
-			folder.toLowerCase().includes(query.toLowerCase())
-		);
-	}
-
-	renderSuggestion(folder: string, el: HTMLElement) {
-		const container = el.createDiv({ cls: "folder-suggestion" });
-		container.createSpan({ 
-			cls: "folder-text", 
-			text: folder || "Root folder" 
-		});
-	}
-
-	onChooseSuggestion(folder: string, evt: MouseEvent | KeyboardEvent) {
-		this.onSelectFolder(folder);
-		this.close();
 	}
 }
 
@@ -735,51 +620,24 @@ class RemoteFetchSettingTab extends PluginSettingTab {
 
 		containerEl.empty();
 
-		containerEl.createEl("h2", { text: "Remote Fetch Settings" });
-
 		new Setting(containerEl)
 			.setName("Default download folder")
 			.setDesc(
 				"Default folder for downloaded files (leave empty for root folder)"
 			)
-			.addText((text) =>
-				text
+			.addText((text) => {
+				const inputEl = text
 					.setPlaceholder("attachments")
 					.setValue(this.plugin.settings.defaultDownloadFolder)
 					.onChange(async (value) => {
 						this.plugin.settings.defaultDownloadFolder = value;
 						await this.plugin.saveSettings();
-					})
-			);
+					});
 
-		new Setting(containerEl)
-			.setName("Enable CORS proxy")
-			.setDesc("Use a CORS proxy to bypass cross-origin restrictions")
-			.addToggle((toggle) =>
-				toggle
-					.setValue(this.plugin.settings.enableCorsProxy)
-					.onChange(async (value) => {
-						this.plugin.settings.enableCorsProxy = value;
-						await this.plugin.saveSettings();
-					})
-			);
+				// Add folder suggest to the settings input as well
+				new FolderInputSuggest(this.app, inputEl.inputEl);
 
-		new Setting(containerEl)
-			.setName("CORS proxy URL")
-			.setDesc(
-				"URL of the CORS proxy service (uses your custom Workers proxy by default)"
-			)
-			.addText((text) =>
-				text
-					.setPlaceholder(
-						"https://remote-fetch.shaharyar.dev/?url="
-					)
-					.setValue(this.plugin.settings.corsProxyUrl)
-					.onChange(async (value) => {
-						this.plugin.settings.corsProxyUrl = value;
-						await this.plugin.saveSettings();
-					})
-			);
+				return inputEl;
+			});
 	}
 }
-

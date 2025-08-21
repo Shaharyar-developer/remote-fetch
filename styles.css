@@ -1,0 +1,46 @@
+/* Styles for Remote Fetch Plugin UI */
+.remote-fetch-input-container {
+	margin-bottom: 15px;
+}
+.remote-fetch-input-container label {
+	display: block;
+	margin-bottom: 5px;
+	font-weight: bold;
+}
+.remote-fetch-url-input,
+.remote-fetch-filename-input {
+	width: 100%;
+	padding: 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	background: var(--background-primary);
+	color: var(--text-normal);
+}
+.remote-fetch-folder-container {
+	margin-bottom: 15px;
+}
+.remote-fetch-folder-display {
+	padding: 8px;
+	border: 1px solid var(--background-modifier-border);
+	border-radius: 4px;
+	background: var(--background-secondary);
+	margin-bottom: 10px;
+}
+.remote-fetch-button-container {
+	display: flex;
+	justify-content: flex-end;
+	gap: 10px;
+	margin-top: 20px;
+}
+.folder-suggestion {
+	display: flex;
+	align-items: center;
+	padding: 4px 0;
+}
+.folder-icon {
+	margin-right: 8px;
+	font-size: 14px;
+}
+.folder-text {
+	color: var(--text-normal);
+}
