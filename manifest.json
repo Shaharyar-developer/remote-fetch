@@ -1,7 +1,7 @@
 {
 	"id": "remote-fetch",
 	"name": "Remote Fetch",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"minAppVersion": "0.15.0",
 	"description": "Download files from URLs directly into your vault with CORS proxy support.",
 	"author": "Shaharyar",
