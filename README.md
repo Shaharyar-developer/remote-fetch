@@ -1,85 +1,39 @@
-
 # Remote Fetch Plugin
 
-A powerful Obsidian plugin that allows you to download files from URLs directly into your vault with CORS proxy support.
+A powerful Obsidian plugin that allows you to download files from URLs directly into your vault.
 
 > **Note:** This plugin is **not yet available in the Obsidian Community Plugins directory**. For now, you must install it manually (see instructions below).
 
 ## Features
 
-- **Direct URL Downloads**: Download files from any URL directly into your Obsidian vault
-- **CORS Proxy Support**: Bypass cross-origin restrictions using a configurable CORS proxy
-- **Smart File Naming**: Automatically extracts filenames from URLs or allows custom naming
-- **Folder Selection**: Choose any folder in your vault as the download destination
-- **File Type Detection**: Automatically detects file types and adds appropriate extensions
-- **Error Handling**: Comprehensive error handling with informative messages
-- **Caching Support**: Handles HTTP 304 responses and cache-busting for fresh downloads
+- **Direct URL Downloads**: Download files from any HTTP or HTTPS URL directly into your Obsidian vault.
+- **Smart File Naming**: Automatically extracts filenames from URLs or allows custom naming.
+- **Folder Selection**: Choose any folder in your vault as the download destination, with type-ahead support.
+- **File Type Detection**: Automatically detects file types and adds appropriate extensions.
+- **Error Handling**: Comprehensive error handling with informative messages.
+- **Security**: Blocks dangerous file types and enforces file size/content-type restrictions.
 
 ## Installation
 
-### Manual Installation (Community Plugins not available yet)
-1. Download the latest release from GitHub
-2. Extract the files to your vault's `.obsidian/plugins/remote-fetch/` folder
-3. Enable the plugin in Obsidian's Community Plugins settings
+### Manual Installation
+1. Download the latest release from GitHub.
+2. Extract the files to your vault's `.obsidian/plugins/remote-fetch/` folder.
+3. Enable the plugin in Obsidian's Community Plugins settings.
 
 ## Usage
 
-### Basic Usage
-1. Use the command palette (Ctrl/Cmd + P) and search for "Download file from URL"
-2. Or use the ribbon icon (if enabled)
-3. Enter the URL of the file you want to download
-4. Choose a filename (auto-filled from URL)
-5. Select a destination folder
-6. Click "Download"
+1. Use the command palette (Ctrl/Cmd + P) and search for **"Download file from URL"**.
+2. Enter the URL of the file you want to download.
+3. Choose a filename (auto-filled from URL).
+4. Select a destination folder (type-ahead supported).
+5. Click **Download**.
 
 ### Command
-- **Download file from URL**: Opens the download modal
+- **Download file from URL**: Opens the download modal.
 
 ## Settings
 
-The plugin offers several configuration options:
-
-- **Default Download Folder**: Set a default folder for all downloads (leave empty for root folder)
-- **Enable CORS Proxy**: Toggle CORS proxy usage to bypass cross-origin restrictions
-- **CORS Proxy URL**: Configure your custom CORS proxy URL
-
-## CORS Proxy Setup
-
-Many websites block direct file downloads due to CORS (Cross-Origin Resource Sharing) restrictions. This plugin includes support for CORS proxies to bypass these limitations.
-
-### Default Proxy
-The plugin comes with a default CORS proxy: `https://remote-fetch.shaharyar.dev/?url=`
-
-
-### Custom Proxy
-You can set up your own CORS proxy using Cloudflare Workers or similar services. The proxy should:
-1. Accept a URL parameter
-2. Fetch the content from that URL
-3. Return it with appropriate CORS headers
-
-#### Example: Safe Cloudflare Worker Script
-
-The full source code for a safe CORS proxy is included in [`cors-proxy-worker.js`](./cors-proxy-worker.js) in this repository.
-**This code is designed to be as safe as possible:**
-
-- Only allows public internet URLs (blocks localhost, private IPs, etc.)
-- Handles CORS preflight requests
-- Limits file size (50MB max)
-- Copies only safe headers
-- Sets strict CORS headers on all responses
-- Does NOT log, store, or analyze any data
-
-You can review the code directly in this repository. It is safe for use as a public CORS proxy for file downloads.
-
-```javascript
-// See cors-proxy-worker.js for the full, up-to-date code
-export default {
-  async fetch(request) {
-    // ...existing code as in cors-proxy-worker.js...
-  }
-};
-```
-
+- **Default download folder**: Set a default folder for all downloads (leave empty for root folder). Type-ahead is supported for folder selection.
 
 ## Supported File Types
 
@@ -99,6 +53,7 @@ The plugin provides detailed error messages for common issues:
 - Invalid URLs
 - File already exists
 - Empty or invalid downloads
+- Blocked file types or oversized files
 
 ## Development
 
@@ -124,11 +79,19 @@ npm run dev
 
 This will start the compiler in watch mode, automatically rebuilding when files change.
 
+> **UI/UX Notes:**  
+> - Use sentence case for all UI labels and headings, except for product/brand names which should follow their official casing.  
+> - Do not add a top-level heading in the settings tab (such as "General", "Settings", or the plugin name).  
+> - Place all custom styles in `styles.css` instead of inline in TypeScript files.  
+> - Use `AbstractInputSuggest` for folder selection to provide type-ahead support.
+
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
 ## License
+
+Copyright (C) 2020-2025 Shaharyar Lalani
 
 This project is licensed under the MIT License - see the LICENSE file for details.
 
@@ -141,13 +104,15 @@ If you find this plugin useful, consider supporting its development:
 ## Changelog
 
 ### 1.0.1
-- Added `cors-proxy-worker.js` to the repository for full transparency
-- README updated to clarify proxy safety and provide direct code reference
+- Switched to Obsidian’s `requestUrl` API for downloads (handles CORS automatically, proxy not required)
+- Removed proxy settings and related UI
+- Improved folder selection with type-ahead (using `AbstractInputSuggest`)
+- Updated UI to use sentence case
+- Moved inline styles to `styles.css`
+- Copyright updated
 
 ### 1.0.0
 - Initial release
 - Basic URL download functionality
-- CORS proxy support
 - Folder selection
 - File type detection
-- Error handling
